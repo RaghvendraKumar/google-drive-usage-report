@@ -26,8 +26,8 @@ public class AdminSdk {
 	private String SERVICE_ACCOUNT_PKCS12_FILE_PATH;
 	/** OAuth2 scopes */
 	private List<String> SCOPES;
-	// Change this value to your own domain
-	private final String DOMAIN = "your-domain.com";
+	/** Main domain */
+	private String DOMAIN;
 	
 	/**
 	 * Class constructor
@@ -35,10 +35,11 @@ public class AdminSdk {
 	 * @param s_a_p12_f_p Service account PKCS12 file path
 	 * @param scopes OAuth2 scopes needed
 	 */
-	public AdminSdk(String s_a_e, String s_a_p12_f_p, List<String> scopes) {
+	public AdminSdk(String s_a_e, String s_a_p12_f_p, List<String> scopes, String d) {
 		SERVICE_ACCOUNT_EMAIL = s_a_e;
 		SERVICE_ACCOUNT_PKCS12_FILE_PATH = s_a_p12_f_p;
 		SCOPES = scopes;
+		DOMAIN = d;
 	}
 	
 	/**

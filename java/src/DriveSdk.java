@@ -70,12 +70,13 @@ public class DriveSdk {
 			// .setHttpRequestInitializer(credential).build();
 			Drive service = new Drive.Builder(httpTransport, jsonFactory, credential)
 							.setApplicationName("Backup Files").build();
+			
+			service.about().get().execute();
+			
 			return service;
 
 		} catch (GeneralSecurityException | IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			Logger.getLogger("DriveReport").severe("Unable to get the Drive Service.");
+			Logger.getLogger("DriveReport").severe("Unable to get the Drive Service for " + userEmail);
 			return null;
 		}
 	}

@@ -34,27 +34,31 @@ public class Main
 	
 	/** Email of the admin account */
 	private static final String ADMIN_ACCOUNT_EMAIL = "admin@your-domain.com";
+	/** Google Apps Domain */
+	private static final String DOMAIN = "your-domain.com";
 	
 	// Global variables
 	static DriveSdk drive_sdk;
 	static AdminSdk admin_sdk;
-	static SimpleDateFormat date_format;
+	static SimpleDateFormat date_format_log;
 
 	public static void main(String[] args) 
 	{
 		/** Enable and configure this 2 lines if executing through proxy */
-		//System.getProperties().put("http.proxyHost", "10.*.*.*"); 
-		//System.getProperties().put("http.proxyPort", "8080");
+		System.getProperties().put("http.proxyHost", "10.80.1.75"); 
+		System.getProperties().put("http.proxyPort", "8080");
+		System.getProperties().put("https.proxyHost", "10.80.1.75"); 
+		System.getProperties().put("https.proxyPort", "8080");
 	
 		System.out.println(" -*- STARTING DRIVE USAGE ANALYSIS -*-");
 		System.out.println("(... This process may take hours...)\n");
 		
-		// Date format for the log title
-		date_format = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
+		// Date formats for the log title and for the user creation
+		date_format_log = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
 		
 		// Create the logcat
 		try {
-			String log_title = "log_" + date_format.format(new Date()) + ".log";
+			String log_title = "log_" + date_format_log.format(new Date()) + ".log";
 			Handler handler = new FileHandler(log_title);
 			handler.setFormatter(new SimpleFormatter());
 			Logger.getLogger("DriveReport").addHandler(handler);
@@ -65,9 +69,11 @@ public class Main
 		
 		// Initializate DriveSdk and AdminSdk
 		drive_sdk = new DriveSdk(SERVICE_ACCOUNT_EMAIL, SERVICE_ACCOUNT_PKCS12_FILE_PATH, SCOPES);
-		admin_sdk = new AdminSdk(SERVICE_ACCOUNT_EMAIL, SERVICE_ACCOUNT_PKCS12_FILE_PATH, SCOPES);
+		admin_sdk = new AdminSdk(SERVICE_ACCOUNT_EMAIL, SERVICE_ACCOUNT_PKCS12_FILE_PATH, SCOPES, DOMAIN);
 		
 		generateReport();
+		
+		System.out.println("");
 	}
 	
 	
@@ -90,85 +96,121 @@ public class Main
 		/* Retrieve all the users from the domain.
 		 * Hint: To get all the users, the second parameter should be null;
 		 * for just one user, should be "email:user-name@your-domain.com*" */
-		List<User> all_users = admin_sdk.retrieveAllUsers(admin_service, null);
+		List<User> all_users = admin_sdk.retrieveAllUsers(admin_service, "email:iacevedo@eulen.com*");
 		if (all_users == null)
 			System.exit(-1);
 		
-		logger.info("Retrieved " + all_users.size() + " users in th domain.\n");
+		logger.info("Retrieved " + all_users.size() + " users in the domain.\n");
 		
 		logger.info("RETRIEVING FILES OF EACH USER...\n");
 
 		// Some statistical variables
-		int n_files;
 		int n_users_using_drive = 0;
 		int n_users_not_using_drive = 0;
 		int n_suspended_users = 0;
 		List<User> error_users = new ArrayList<User>();
 
+		// Users shared variables
 		Drive service;
-		int flushing = 0;
+		String user_info;
+		String status;
+		int n_files;
+		long bytes_used;
+		long bytes_total;
+		
+		// List containing each user's info
+		List<String> list_user_info = new ArrayList<String>();
 
+		// Analyze each user...
 		for (User user : all_users){
-			service = drive_sdk.getDriveService(user.getPrimaryEmail());
-			
-			if (user.getSuspended())
+			// Initialize the values
+			n_files = -1;
+			bytes_used = -1;
+			bytes_total = -1;
+
+			if (user.getSuspended()){
 				n_suspended_users++;
+				status = "SUSPENDED";
+			}
 			
-			else{
-				n_files = drive_sdk.retrieve10FirstFiles(service, null);
+			else {
+				service = drive_sdk.getDriveService(user.getPrimaryEmail());
 				
-				if (n_files == -1){
+				if (service == null){
 					error_users.add(user);
+					status = "ERROR";
 				}
+				
 				else {
-					if (n_files > 0)
-						n_users_using_drive++;
-					else
-						n_users_not_using_drive++;
+					// Get the first 10 elements from the Drive
+					n_files = drive_sdk.retrieve10FirstFiles(service, null);
 					
-					long bytes_used;
-					long bytes_total;
-					try {
-						bytes_used = service.about().get().execute().getQuotaBytesUsed();
-						bytes_total = service.about().get().execute().getQuotaBytesTotal();
-					} catch (Exception e) {
-						bytes_used = -1;
-						bytes_total = -1;
+					if (n_files == -1){
+						error_users.add(user);
+						status = "ERROR";
 					}
-					
-					System.out.println(	user.getPrimaryEmail() + "," + 
-										user.getName().getFullName() + "," +
-										n_files + "," +
-										bytes_used + "," + bytes_total + "," +
-										user.getCreationTime());
-					
-					FileWriter csv;
-					try {
-						csv = new FileWriter("report_" + date_format.format(new Date()) + ".csv");
+					else {
+						status = "ACTIVE";
 						
-						csv.append(	"EMAIL,NAME,N_FILES,USED_STORAGE_bytes," +
-									"TOTAL_STORAGE_bytes,DATE_CREATED\n");
+						if (n_files > 0)
+							n_users_using_drive++;
+						else
+							n_users_not_using_drive++;
 						
-						csv.append(	user.getPrimaryEmail() + "," + 
-								user.getName().getFullName() + "," +
-								n_files + "," +
-								bytes_used + "," + bytes_total + "," +
-								user.getCreationTime() + "\n");
-					
-					flushing++;
-					if (flushing >= 100){
-						csv.flush();
-						flushing = 0;
-					}
-					
-					csv.close();
-					} catch (IOException e) {
-						e.printStackTrace();
-						logger.severe("Unable to generate CSV.");
+						try {
+							bytes_used = service.about().get().execute().getQuotaBytesUsed()/(1024*1024);
+							bytes_total = service.about().get().execute().getQuotaBytesTotal()/(1024*1024);
+						} catch (Exception e) {
+							bytes_used = -1;
+							bytes_total = -1;
+						}
 					}
 				}
 			}
+			
+			// Little formatting of the date
+			String date_ugly = user.getCreationTime().toString();
+			String date_pretty = date_ugly.substring(0, date_ugly.indexOf("T"));
+			
+			user_info = (	user.getPrimaryEmail() + "," + 
+							user.getName().getFullName() + "," +
+							status + "," + n_files + "," +
+							bytes_used + "," + bytes_total + "," +
+							date_pretty + "\n");
+
+			System.out.print(user_info);
+			// Add the user info to the list
+			list_user_info.add(user_info);
+		}	
+		
+		// Now write all the users info from the list to a CSV
+		FileWriter csv;
+		int flushing = 0;
+		
+		try {
+			csv = new FileWriter("report_" + date_format_log.format(new Date()) + ".csv");
+			// Create the header for the CSV
+			csv.append(	"EMAIL,NAME,STATUS,N_FILES,USED_STORAGE_Mbytes," +
+						"TOTAL_STORAGE_Mbytes,DATE_CREATED\n");
+			
+			for (String line : list_user_info){
+				csv.append(line);
+		
+				flushing++;
+				// Flush to the file every 100 lines
+				if (flushing >= 100){
+					csv.flush();
+					flushing = 0;
+				}
+			}
+			
+			csv.close();
+			
+		} catch (IOException e) {
+			e.printStackTrace();
+			logger.severe("Unable to generate CSV.");
 		}
+		
 		
 		String end_report = "END OF REPORT: ";
 		end_report += ("\n - USERS WITH AT LEAST 1 FILE: " + n_users_using_drive +
@@ -182,7 +224,7 @@ public class Main
 			String str_users_error = "\nThe following users caused trouble:";
 
 			for (User e_user : error_users){				
-				str_users_error += (	"\n" + e_user.getPrimaryEmail() + "," + 
+				str_users_error += ("\n" + e_user.getPrimaryEmail() + "," + 
 									e_user.getName().getFullName());
 			}
 			
